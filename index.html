@@ -1309,6 +1309,7 @@ class Game {
             if (m.promo) san += '=' + m.promo.toUpperCase();
         } else {
             san = piece.type.toUpperCase();
+            if (captured) san += 'x';
             san += files[m.tc] + (8 - m.tr);
         }
 
