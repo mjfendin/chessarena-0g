@@ -1,0 +1,15 @@
+node_modules/
+.flask_backup/
+lib/
+src/__pycache__/
+src/
+static/
+templates/
+*.pyc
+*.bak
+package-lock.json
+package.json
+artifacts/
+deploy/
+hardhat.config.js
+index.html.bak
