@@ -1575,20 +1575,40 @@ function repetitionPenalty(game, move) {
     const hist = game.moveLog;
     const histLen = hist.length;
     
-    // Penalize moving same piece repeatedly
-    const fromKey = `${move.fr},${move.fc}`;
+    // STRONG penalty for moving same piece repeatedly
     let samePieceCount = 0;
-    for (let i = histLen - 1; i >= Math.max(0, histLen - 4); i--) {
+    for (let i = histLen - 1; i >= Math.max(0, histLen - 6); i--) {
         if (hist[i].fr === move.fr && hist[i].fc === move.fc && hist[i].piece === move.piece) samePieceCount++;
     }
-    if (samePieceCount >= 2) penalty -= 2.0;
-    else if (samePieceCount >= 1 && histLen >= 2) penalty -= 1.0;
+    if (samePieceCount >= 3) penalty -= 5.0;  // Very strong
+    else if (samePieceCount >= 2) penalty -= 3.0;
+    else if (samePieceCount >= 1 && histLen >= 2) penalty -= 1.5;
     
-    // Piece repetition: returning piece to a recent square
-    for (let i = histLen - 1; i >= Math.max(0, histLen - 4); i--) {
+    // Penalty for returning piece to recent square
+    for (let i = histLen - 1; i >= Math.max(0, histLen - 6); i--) {
         if (hist[i].tr === move.tr && hist[i].tc === move.tc && hist[i].piece === move.piece) {
-            penalty -= 1.5;
+            penalty -= 2.5;
             break;
+        }
+    }
+    
+    // BONUS for moving a piece that hasn't moved yet (development)
+    if (move.piece && !move.capture) {
+        let pieceMovedBefore = false;
+        for (let i = histLen - 1; i >= Math.max(0, histLen - 20); i--) {
+            if (hist[i].piece === move.piece) { pieceMovedBefore = true; break; }
+        }
+        if (!pieceMovedBefore && (move.piece === 'n' || move.piece === 'b')) {
+            penalty += 1.5;  // Development bonus
+        }
+    }
+    
+    // BONUS for moving different piece types (diversity)
+    if (histLen >= 2) {
+        const lastPiece = hist[histLen - 1].piece;
+        const secondLastPiece = hist[histLen - 2].piece;
+        if (move.piece !== lastPiece && move.piece !== secondLastPiece) {
+            penalty += 0.8;  // Diversity bonus
         }
     }
     
@@ -1772,7 +1792,7 @@ function aggressiveEval(game, moves) {
         s += repetitionPenalty(game, m);
         
         // Random factor
-        s += Math.random() * 0.2;
+        s += Math.random() * 0.35;
         
         if (s > bestScore) {
             bestScore = s;
@@ -3102,7 +3122,18 @@ function resetGame() {
     moveIdx = 0;
     moveHistory = [];
 
+    // Reset stats
+    totalMoves = 0;
+    storageCount = 0;
+    chainCount = 0;
+    document.getElementById('stat-games').textContent = '0';
+    document.getElementById('stat-moves').textContent = '0';
+    document.getElementById('stat-chain').textContent = '0';
+    document.getElementById('stat-storage').textContent = '0';
+
     resetTimers();
+    updateTimerDisplay('white');
+    updateTimerDisplay('black');
 
     const btnStart = document.getElementById('btn-start');
     const btnPause = document.getElementById('btn-pause');
@@ -3242,9 +3273,8 @@ async function startTournament() {
                 document.getElementById('stat-moves').textContent = totalMoves;
                 renderBoard();
                 renderMoves();
-                // Switch timer to next player
-                stopTimer();
-                startTimer(game.turn === 'w' ? 'white' : 'black');
+                // Switch timer to next player (just change active, don't restart interval)
+                activeTimer = game.turn === 'w' ? 'white' : 'black';
 
                 practiceTimeoutId = setTimeout(playTournamentNext, 50);
             }
