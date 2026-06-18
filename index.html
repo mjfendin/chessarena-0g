@@ -2486,6 +2486,19 @@ function updateStartButton() {
 
 // --- Disconnect Wallet ---
 function disconnectWallet() {
+    // Stop any running game/practice
+    isPlaying = false;
+    isPaused = false;
+    stopTimer();
+    resetTimers();
+    updateTimerDisplay('white');
+    updateTimerDisplay('black');
+    game = new Game();
+    gameMovesLog = [];
+    moveIdx = 0;
+    moveHistory = [];
+    renderBoard();
+
     walletAddress = null;
     signer = null;
     provider = null;
@@ -3204,9 +3217,11 @@ async function startTournament() {
                 gameMovesLog.push(game.moveLog[game.moveLog.length - 1].san);
                 totalMoves++;
                 document.getElementById('stat-moves').textContent = totalMoves;
-
                 renderBoard();
                 renderMoves();
+                // Switch timer to next player
+                stopTimer();
+                startTimer(game.turn === 'w' ? 'white' : 'black');
 
                 setTimeout(playTournamentNext, 50);
             }
