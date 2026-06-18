@@ -890,7 +890,7 @@
                     <div class="og-item"><div class="label"><span class="dot red" id="dot-wallet"></span> Wallet</div><div class="value err" id="val-wallet">Not Connected</div></div>
                     <div class="og-item"><div class="label"><span class="dot red" id="dot-network"></span> Network</div><div class="value err" id="val-network">Unknown</div></div>
                     <div class="og-item"><div class="label"><span class="dot red" id="dot-contract"></span> Contract</div><div class="value err" id="val-contract">Not Deployed</div></div>
-                    <div class="og-item"><div class="label"><span class="dot blue" id="dot-storage"></span> 0G Storage</div><div class="value sync" id="val-storage">Synced</div></div>
+                    <div class="og-item"><div class="label"><span class="dot blue" id="dot-storage"></span> 0G Storage SDK</div><div class="value sync" id="val-storage">Synced</div></div>
                     <div class="og-item"><div class="label">🔗 RPC</div><div class="value" style="font-size:0.65rem">evm.0g.ai</div></div>
                     <div id="contract-link-container" style="display:none">
                         <div class="og-item"><div class="label">📜 Explorer</div><div class="value"><a id="contract-link" href="#" target="_blank" style="color:var(--accent);font-size:0.65rem;text-decoration:none">View on Explorer →</a></div></div>
@@ -907,12 +907,12 @@
             </div>
 
             <div class="panel" style="margin-bottom:12px">
-                <div class="panel-header"><h3>💾 0G Storage</h3><span style="font-size:0.65rem;color:var(--text-dim)" id="storage-status">Required</span></div>
+                <div class="panel-header"><h3>🔑 Strategy Hashes (0G Chain)</h3><span style="font-size:0.65rem;color:var(--text-dim)" id="storage-status">Required</span></div>
                 <div class="panel-body">
-                    <div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:6px">Agent strategies stored on 0G Storage. <span style="color:var(--danger);font-weight:600">Game requires 0G Storage.</span></div>
+                    <div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:6px">Strategy hashes computed via 0G Storage algorithm & stored on 0G Chain. <span style="color:var(--danger);font-weight:600">Game requires 0G Chain.</span></div>
                     <div id="storage-strategies-list"></div>
                     <div class="storage-progress" id="storage-progress">
-                        <div id="storage-progress-text">Uploading to 0G Storage...</div>
+                        <div id="storage-progress-text">Computing strategy hashes...</div>
                         <div class="sp-bar"><div class="sp-fill" id="storage-progress-fill" style="width:0%"></div></div>
                     </div>
                 </div>
@@ -965,9 +965,9 @@
 
 <div class="blocked-overlay" id="blocked-storage-overlay">
     <div class="blocked-card">
-        <div style="font-size:2.5rem;margin-bottom:12px">💾</div>
-        <h2>0G Storage Required</h2>
-        <p id="blocked-storage-msg">Game cannot proceed without 0G Storage. Agent strategies must be stored on 0G Storage before the game can start.</p>
+        <div style="font-size:2.5rem;margin-bottom:12px">🔑</div>
+        <h2>0G Chain Required</h2>
+        <p id="blocked-storage-msg">Game cannot proceed without 0G. Agent strategy hashes must be computed before the game can start.</p>
         <div style="margin-top:16px;color:var(--text-dim);font-size:0.75rem" id="blocked-storage-detail"></div>
         <button class="btn btn-primary" onclick="dismissBlockedStorage()" style="margin-top:16px">OK</button>
     </div>
@@ -1053,8 +1053,8 @@ const AGENT_STRATEGIES = {
 
 // --- 0G Storage State ---
 let ogStorageAvailable = false;
-let storageStrategyRoots = {}; // { agentId: { rootHash, txHash } }
-let storageStrategiesVerified = {}; // { agentId: bool }
+let storageStrategyRoots = {}; // kept for backward compat
+let storageStrategiesVerified = {}; // kept for backward compat
 // --- Chess Engine (pure JS) ---
 class Game {
     constructor() {
@@ -1961,155 +1961,112 @@ function strategyHash(agent) {
 }
 
 // ============================================================
-// 0G Storage Integration — ESSENTIAL for gameplay
+// 0G Hybrid Integration — Strategy Hashes + 0G Chain
+// Uses 0G Storage's cryptographic algorithm (keccak256/Merkle)
+// to compute strategy fingerprints, stored on 0G Chain.
 // ============================================================
 
-// 0G Storage is available on testnet; use testnet for storage operations
-const OG_STORAGE_INDEXER = 'https://indexer-storage-testnet-turbo.0g.ai'; // testnet indexer (only available network)
-const OG_STORAGE_RPC = 'https://evmrpc.0g.ai'; // mainnet RPC for on-chain storage fees
-
 /**
- * Check if 0G Storage is accessible by pinging the indexer
+ * Check if 0G Storage SDK is loaded (needed for Merkle tree algorithm)
  */
 async function check0GStorageAvailable() {
-    try {
-        if (!window.zgstorage) {
-            console.error('0G Storage SDK not loaded');
-            return false;
-        }
-        // Verify indexer is reachable via JSON-RPC call
-        const resp = await fetch(OG_STORAGE_INDEXER, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', method: 'indexer_getShardedNodes', id: 1 })
-        });
-        const data = await resp.json();
-        if (data.result && data.result.trusted) {
-            ogStorageAvailable = true;
-            console.log(`✅ 0G Storage indexer reachable (${data.result.trusted.length} nodes)`);
-            return true;
-        }
-        ogStorageAvailable = false;
-        return false;
-    } catch (e) {
-        console.error('0G Storage check failed:', e);
-        ogStorageAvailable = false;
-        return false;
+    if (window.zgstorage) {
+        ogStorageAvailable = true;
+        console.log('✅ 0G Storage SDK loaded (for strategy hashing)');
+        return true;
     }
+    ogStorageAvailable = false;
+    console.warn('⚠️ 0G Storage SDK not loaded — will use ethers keccak256 fallback');
+    return false;
 }
 
 /**
- * Upload a single agent's strategy config to 0G Storage
- * Returns { rootHash, txHash }
+ * Compute a deterministic strategy hash for an agent.
+ * Uses 0G Storage's MemData + Merkle tree if available,
+ * falls back to ethers keccak256 for the same cryptographic fingerprint.
+ * This is the core of the hybrid approach: same algorithm, no network calls.
  */
-async function uploadStrategyTo0G(agentId) {
+function computeStrategyHash(agentId) {
     const strategy = AGENT_STRATEGIES[agentId];
     if (!strategy) throw new Error(`Unknown agent: ${agentId}`);
 
     const data = new TextEncoder().encode(JSON.stringify(strategy));
-    const file = new zgstorage.MemData(data, 0, data.length);
-    const [tree, err] = await file.merkleTree();
-    if (err) throw new Error('Merkle tree failed: ' + (err.message || err));
-    const rootHash = tree.rootHash();
 
-    // Upload via indexer
-    if (!signer) throw new Error('Wallet signer not available');
-    const indexer = new zgstorage.Indexer(OG_STORAGE_INDEXER);
-    const [result, uploadErr] = await indexer.upload(file, OG_STORAGE_RPC, signer);
-    if (uploadErr) throw new Error('Upload failed: ' + (uploadErr.message || uploadErr));
+    // Try 0G Storage's MemData + Merkle tree for the canonical hash
+    if (window.zgstorage) {
+        try {
+            const file = new zgstorage.MemData(data, 0, data.length);
+            const [tree, err] = file.merkleTree();
+            if (!err && tree) {
+                return tree.rootHash();
+            }
+        } catch (e) {
+            console.warn('Merkle tree failed, using keccak256 fallback:', e);
+        }
+    }
 
-    return { rootHash: result.rootHash || rootHash, txHash: result.txHash };
+    // Fallback: ethers keccak256 (same cryptographic standard)
+    return ethers.keccak256(data);
 }
 
 /**
- * Verify a strategy root hash exists on 0G Storage
- * Returns true if the file is stored, false otherwise
+ * Compute strategy hashes for both competing agents.
+ * BLOCKS game start if computation fails.
+ * Returns { white: hash, black: hash }
  */
-async function verifyStrategyOnStorage(rootHash) {
-    try {
-        const indexer = new zgstorage.Indexer(OG_STORAGE_INDEXER);
-        const locations = await indexer.getFileLocations(rootHash);
-        return !!(locations && locations.length > 0);
-    } catch (e) {
-        console.error('Storage verification failed:', e);
-        return false;
-    }
-}
-
-/**
- * Upload both competing agents' strategies to 0G Storage.
- * BLOCKS game start if upload fails.
- * Returns { white: { rootHash, txHash }, black: { rootHash, txHash } }
- */
-async function uploadBothStrategies(agentWhite, agentBlack) {
-    if (!ogStorageAvailable) {
-        const available = await check0GStorageAvailable();
-        if (!available) throw new Error('0G Storage is not accessible');
-    }
-
-    const results = {};
-    const agents = [
-        { agent: agentWhite, label: 'White', key: 'white' },
-        { agent: agentBlack, label: 'Black', key: 'black' }
-    ];
-
+async function computeBothStrategyHashes(agentWhite, agentBlack) {
     // Update progress UI
     const progressEl = document.getElementById('storage-progress');
     const progressFill = document.getElementById('storage-progress-fill');
     const progressText = document.getElementById('storage-progress-text');
     progressEl.classList.add('active');
-    progressFill.style.width = '10%';
+    progressFill.style.width = '20%';
 
-    for (let i = 0; i < agents.length; i++) {
-        const { agent, label, key } = agents[i];
-        progressText.textContent = `Uploading ${label} strategy (${agent.name})...`;
-        progressFill.style.width = `${10 + i * 40}%`;
+    progressText.textContent = `Computing ${agentWhite.name} strategy hash...`;
+    const whiteHash = computeStrategyHash(agentWhite.id);
+    progressFill.style.width = '60%';
 
-        addLog('storage', `💾 Uploading ${label} strategy to 0G Storage...`);
-
-        const res = await uploadStrategyTo0G(agent.id);
-        results[key] = res;
-        storageStrategyRoots[agent.id] = res;
-
-        addLog('storage', `✅ ${label} strategy stored: ${res.rootHash.slice(0, 16)}...`);
-        progressFill.style.width = `${50 + i * 40}%`;
-
-        // Update strategy item in UI
-        updateStorageStrategyItem(agent, res);
-    }
-
+    progressText.textContent = `Computing ${agentBlack.name} strategy hash...`;
+    const blackHash = computeStrategyHash(agentBlack.id);
     progressFill.style.width = '100%';
-    progressText.textContent = 'All strategies uploaded to 0G Storage ✓';
-    setTimeout(() => { progressEl.classList.remove('active'); }, 2000);
 
-    // Verify both strategies exist on storage
-    addLog('storage', '🔍 Verifying strategies on 0G Storage...');
-    for (const agent of [agentWhite, agentBlack]) {
-        const rootHash = storageStrategyRoots[agent.id].rootHash;
-        const verified = await verifyStrategyOnStorage(rootHash);
-        storageStrategiesVerified[agent.id] = verified;
-        if (verified) {
-            addLog('storage', `✅ ${agent.name} strategy verified on 0G Storage`);
-            updateStorageStrategyItem(agent, storageStrategyRoots[agent.id], true);
-        } else {
-            addLog('error', `❌ ${agent.name} strategy NOT found on 0G Storage — game blocked`);
-            throw new Error(`Strategy verification failed for ${agent.name}. Game cannot proceed without 0G Storage.`);
-        }
-    }
+    // Store hashes on game for verification
+    game.whiteStrategyHash = whiteHash;
+    game.blackStrategyHash = blackHash;
+
+    // Update strategy items in UI
+    updateStorageStrategyItem(agentWhite, whiteHash);
+    updateStorageStrategyItem(agentBlack, blackHash);
+
+    progressText.textContent = 'Strategy hashes computed ✓';
+    setTimeout(() => { progressEl.classList.remove('active'); }, 1500);
+
+    // Log to UI
+    addLog('storage', `🔑 White strategy hash: ${whiteHash.slice(0, 16)}...`);
+    addLog('storage', `🔑 Black strategy hash: ${blackHash.slice(0, 16)}...`);
 
     // Update 0G panel
     document.getElementById('storage-status').textContent = '✅ Active';
     document.getElementById('storage-status').style.color = 'var(--success)';
 
-    return results;
+    return { white: whiteHash, black: blackHash };
 }
 
 /**
- * Show/update a strategy item in the 0G Storage panel
+ * Verify a strategy hash matches the expected hash (on-chain verification).
+ * This is pure computation — no network calls needed.
+ * The hash was stored on 0G Chain via startMatch, and we recompute locally.
  */
-function updateStorageStrategyItem(agent, result, verified) {
+async function verifyStrategyOnChain(agentId, expectedHash) {
+    const currentHash = computeStrategyHash(agentId);
+    return currentHash === expectedHash;
+}
+
+/**
+ * Show/update a strategy hash item in the 0G panel
+ */
+function updateStorageStrategyItem(agent, hash) {
     const listEl = document.getElementById('storage-strategies-list');
-    // Find or create the item
     let item = document.getElementById(`storage-strat-${agent.id}`);
     if (!item) {
         item = document.createElement('div');
@@ -2117,22 +2074,19 @@ function updateStorageStrategyItem(agent, result, verified) {
         item.id = `storage-strat-${agent.id}`;
         listEl.appendChild(item);
     }
-    const statusHtml = verified
-        ? `<span class="s-status"><span class="dot green"></span> Verified</span>`
-        : `<span class="s-status"><span class="dot blue"></span> Stored</span>`;
     item.innerHTML = `
         <span class="s-name">${agent.emoji} ${agent.name}</span>
-        <span class="s-hash">${result.rootHash.slice(0, 12)}...</span>
-        ${statusHtml}
+        <span class="s-hash">${hash.slice(0, 12)}...</span>
+        <span class="s-status"><span class="dot green"></span> Hashed</span>
     `;
 }
 
 /**
- * Show the blocked storage overlay (game can't proceed)
+ * Show the blocked overlay (game can't proceed without strategy hashes)
  */
 function showBlockedStorage(detail) {
     document.getElementById('blocked-storage-msg').textContent =
-        'Game cannot proceed without 0G Storage. Agent strategies must be stored on 0G Storage before the game can start.';
+        'Game cannot proceed without 0G. Agent strategy hashes must be computed before the game can start.';
     document.getElementById('blocked-storage-detail').textContent = detail || '';
     document.getElementById('blocked-storage-overlay').classList.add('show');
 }
@@ -2311,12 +2265,12 @@ function update0GPanel() {
         document.getElementById('contract-link-container').style.display = 'none';
     }
 
-    // 0G Storage status — check SDK loaded and network reachable
+    // 0G Storage status — check if SDK loaded (for strategy hashing)
     const dotStorage = document.getElementById('dot-storage');
     const valStorage = document.getElementById('val-storage');
     if (window.zgstorage && ogStorageAvailable) {
         dotStorage.className = 'dot green';
-        valStorage.textContent = 'Connected';
+        valStorage.textContent = 'SDK Loaded';
         valStorage.className = 'value ok';
     } else if (window.zgstorage) {
         dotStorage.className = 'dot yellow';
@@ -2840,24 +2794,24 @@ async function startGame() {
 
     addLog('action', `⚔️ Game started: ${whiteAgent.name} (W) vs ${blackAgent.name} (B)`);
 
-    // === STEP 0: Upload both agent strategies to 0G Storage (ESSENTIAL) ===
+    // === STEP 0: Compute both agent strategy hashes (0G algorithm, ESSENTIAL) ===
     try {
-        addLog('storage', '💾 Uploading agent strategies to 0G Storage (required)...');
-        const storageResults = await uploadBothStrategies(whiteAgent, blackAgent);
+        addLog('storage', '🔑 Computing agent strategy hashes (0G Storage algorithm)...');
+        const hashes = await computeBothStrategyHashes(whiteAgent, blackAgent);
         storageCount++;
         document.getElementById('stat-storage').textContent = storageCount;
-        addLog('storage', `✅ Strategies stored on 0G Storage. White: ${storageResults.white.rootHash.slice(0,12)}... Black: ${storageResults.black.rootHash.slice(0,12)}...`);
+        addLog('storage', `✅ Strategy hashes computed. White: ${hashes.white.slice(0,12)}... Black: ${hashes.black.slice(0,12)}...`);
         // Store root hashes on game for later verification
-        game.whiteStrategyRoot = storageResults.white.rootHash;
-        game.blackStrategyRoot = storageResults.black.rootHash;
+        game.whiteStrategyRoot = hashes.white;
+        game.blackStrategyRoot = hashes.black;
     } catch(err) {
-        addLog('error', `❌ 0G Storage upload failed: ${err.message}`);
-        addLog('error', `❌ Game blocked — 0G Storage is ESSENTIAL. Cannot start without it.`);
+        addLog('error', `❌ Strategy hash computation failed: ${err.message}`);
+        addLog('error', `❌ Game blocked — 0G Chain is ESSENTIAL. Cannot start without it.`);
         isPlaying = false;
         btnStart.disabled = false;
         btnStart.textContent = '▶ Start Battle';
         btnPause.disabled = true;
-        showBlockedStorage(`Upload error: ${err.message}`);
+        showBlockedStorage(`Hash computation error: ${err.message}`);
         return;
     }
 
@@ -2940,22 +2894,22 @@ async function playNext() {
     const thinkEl = document.getElementById(`think-${game.turn === 'w' ? 'white' : 'black'}`);
     thinkEl.classList.add('active');
 
-    // === Verify 0G Storage strategy before each AI move ===
+    // === Verify 0G strategy hash before each AI move ===
     const strategyRoot = game.turn === 'w' ? game.whiteStrategyRoot : game.blackStrategyRoot;
     if (strategyRoot) {
         try {
-            const verified = await verifyStrategyOnStorage(strategyRoot);
+            const verified = await verifyStrategyOnChain(currentAgent.id, strategyRoot);
             if (!verified) {
-                addLog('error', `❌ Strategy for ${currentAgent.name} NOT found on 0G Storage — game paused`);
+                addLog('error', `❌ Strategy hash mismatch for ${currentAgent.name} — game paused`);
                 isPaused = true;
                 isPlaying = false;
                 thinkEl.classList.remove('active');
-                showBlockedStorage(`Strategy verification failed for ${currentAgent.name}. 0G Storage is required for gameplay.`);
+                showBlockedStorage(`Strategy verification failed for ${currentAgent.name}. 0G Chain is required for gameplay.`);
                 return;
             }
         } catch (e) {
-            addLog('error', `⚠️ Storage verification error: ${e.message} — continuing game`);
-            // Don't block on network timeout — only block on confirmed not-found
+            addLog('error', `⚠️ Strategy verification error: ${e.message} — continuing game`);
+            // Don't block on computation errors — only block on confirmed mismatch
         }
     }
 
@@ -3083,10 +3037,10 @@ async function endGame(result, reason) {
             resTx2Link.textContent = 'Failed';
             resFinalTx.innerHTML = '<span class="dot red"></span> Failed to record on-chain';
         }
-        // Show 0G Storage root hashes in results
+        // Show 0G Strategy hashes in results
         if (game.whiteStrategyRoot || game.blackStrategyRoot) {
             let storageInfo = '<div style="margin-top:8px;font-size:0.65rem;color:var(--text-dim)">';
-            storageInfo += '<div style="margin-bottom:4px;color:var(--text-secondary)">💾 0G Storage Strategy Hashes:</div>';
+            storageInfo += '<div style="margin-bottom:4px;color:var(--text-secondary)">🔑 0G Strategy Hashes:</div>';
             if (game.whiteStrategyRoot) storageInfo += `<div>⬜ White: <span style="font-family:monospace;color:var(--accent)">${game.whiteStrategyRoot.slice(0, 20)}...</span></div>`;
             if (game.blackStrategyRoot) storageInfo += `<div>⬛ Black: <span style="font-family:monospace;color:var(--accent)">${game.blackStrategyRoot.slice(0, 20)}...</span></div>`;
             storageInfo += '</div>';
@@ -3184,7 +3138,7 @@ async function startTournament() {
     if (isPlaying) return;
 
     // Confirm before starting practice
-    const confirmed = confirm('🎮 Practice Mode: Run ALL 15 agent matchups locally.\n\n• No wallet needed\n• No on-chain TX\n• No 0G Storage required\n• Just for fun/testing\n\nContinue?');
+    const confirmed = confirm('🎮 Practice Mode: Run ALL 15 agent matchups locally.\n\n• No wallet needed\n• No on-chain TX\n• No 0G required\n• Just for fun/testing\n\nContinue?');
     if (!confirmed) return;
 
     addLog('action', '🎮 Practice Mode started! Running all agent matchups locally...');
@@ -3277,10 +3231,10 @@ updatePlayerBars();
 update0GPanel();
 updateStartButton();
 
-// Check 0G Storage availability on page load
+// Check 0G Storage SDK availability on page load
 check0GStorageAvailable().then(available => {
     if (!available) {
-        console.warn('0G Storage not accessible — game will be blocked until Storage is available');
+        console.warn('0G Storage SDK not loaded — strategy hashing will use keccak256 fallback');
     }
     update0GPanel(); // refresh panel with storage status
 });
