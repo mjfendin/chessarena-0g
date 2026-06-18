@@ -4,9 +4,19 @@
     {
       "src": "index.html",
       "use": "@vercel/static"
+    },
+    {
+      "src": "zgstorage.umd.js",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
+    {
+      "src": "/zgstorage\\.umd\\.js",
+      "headers": {
+        "Content-Type": "application/javascript"
+      }
+    },
     {
       "src": "/(.*)",
       "dest": "/index.html"

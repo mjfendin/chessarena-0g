@@ -2508,16 +2508,16 @@ function updateStartButton() {
     const btn = document.getElementById('btn-start');
     if (!walletAddress) {
         btn.disabled = true;
-        btn.textContent = '🔗 Connect Wallet';
+        btn.textContent = '🔗 Connect Wallet to Battle';
         btn.onclick = connectWallet;
-    } else if (!isPlaying && !window.zgstorage) {
-        btn.disabled = true;
-        btn.textContent = '💾 0G Storage SDK Required';
-        btn.onclick = () => showBlockedStorage('0G Storage SDK not loaded. Please refresh the page.');
     } else if (!isPlaying) {
         btn.disabled = false;
         btn.textContent = '▶ Start Battle';
         btn.onclick = startGame;
+    } else {
+        btn.disabled = false;
+        btn.textContent = '⏸ Pause';
+        btn.onclick = pauseGame;
     }
 }
 
@@ -3173,10 +3173,9 @@ function toggleSpeed() {
 // --- Start Tournament ---
 async function startTournament() {
     if (isPlaying) return;
-    if (!walletAddress) { connectWallet(); return; }
 
-    // Confirm before starting tournament
-    const confirmed = confirm('🎮 Practice Mode will run ALL 15 agent matchups locally (no on-chain TX). This is for testing only — no blockchain recording. Continue?');
+    // Confirm before starting practice
+    const confirmed = confirm('🎮 Practice Mode: Run ALL 15 agent matchups locally.\n\n• No wallet needed\n• No on-chain TX\n• No 0G Storage required\n• Just for fun/testing\n\nContinue?');
     if (!confirmed) return;
 
     addLog('action', '🎮 Practice Mode started! Running all agent matchups locally...');
@@ -3213,6 +3212,7 @@ async function startTournament() {
             isPaused = false;
 
             resetTimers();
+            startTimer('white');
             renderBoard();
 
             function playTournamentNext() {
