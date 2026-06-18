@@ -873,7 +873,7 @@
                 <button class="btn" id="btn-pause" onclick="pauseGame()" disabled>⏸ Pause</button>
                 <button class="btn" id="btn-speed" onclick="toggleSpeed()">⚡ Normal</button>
                 <button class="btn btn-danger" onclick="resetGame()">↺ Reset</button>
-                <button class="btn" onclick="startTournament()">🏆 Tournament</button>
+                <button class="btn" onclick="startTournament()">🎮 Practice</button>
             </div>
 
             <div class="panel" style="width:480px;margin-top:12px">
@@ -3176,10 +3176,10 @@ async function startTournament() {
     if (!walletAddress) { connectWallet(); return; }
 
     // Confirm before starting tournament
-    const confirmed = confirm('🏆 Tournament will run ALL 15 agent matchups locally (no on-chain TX for each game). Continue?');
+    const confirmed = confirm('🎮 Practice Mode will run ALL 15 agent matchups locally (no on-chain TX). This is for testing only — no blockchain recording. Continue?');
     if (!confirmed) return;
 
-    addLog('action', '🏆 Tournament started! Running all agent matchups...');
+    addLog('action', '🎮 Practice Mode started! Running all agent matchups locally...');
 
     const matchups = [];
     for (let i = 0; i < AGENTS.length; i++) {
@@ -3255,7 +3255,7 @@ async function startTournament() {
         await new Promise(r => setTimeout(r, 1000));
     }
 
-    addLog('action', '🏆 Tournament complete!');
+    addLog('action', '🎮 Practice Mode complete!');
     isPlaying = false;
     renderAgents();
     renderLeaderboardOnChain();
