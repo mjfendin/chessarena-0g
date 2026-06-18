@@ -2150,13 +2150,14 @@ let blackTime = 300;
 let timerInterval = null;
 let activeTimer = null;
 let lastTimerTick = 0;
+let practiceTimeoutId = null; // For cancelling practice mode
 
 function startTimer(color) {
     stopTimer();
     activeTimer = color;
     lastTimerTick = Date.now();
     timerInterval = setInterval(() => {
-        if (isPaused) { lastTimerTick = Date.now(); return; }
+        if (isPaused || !isPlaying) { lastTimerTick = Date.now(); return; }
         const now = Date.now();
         const elapsed = (now - lastTimerTick) / 1000;
         lastTimerTick = now;
@@ -2490,6 +2491,11 @@ function disconnectWallet() {
     isPlaying = false;
     isPaused = false;
     stopTimer();
+    // Cancel any pending practice timeouts
+    if (practiceTimeoutId) {
+        clearTimeout(practiceTimeoutId);
+        practiceTimeoutId = null;
+    }
     resetTimers();
     updateTimerDisplay('white');
     updateTimerDisplay('black');
@@ -3085,6 +3091,11 @@ function resetGame() {
     isPlaying = false;
     isPaused = false;
     stopTimer();
+    // Cancel any pending practice timeouts
+    if (practiceTimeoutId) {
+        clearTimeout(practiceTimeoutId);
+        practiceTimeoutId = null;
+    }
 
     game = new Game();
     gameMovesLog = [];
@@ -3151,7 +3162,7 @@ async function startTournament() {
     if (isPlaying) return;
 
     // Confirm before starting practice
-    const confirmed = confirm('🎮 Practice Mode: Run ALL 15 agent matchups locally.\n\n• No wallet needed\n• No on-chain TX\n• No 0G required\n• Just for fun/testing\n\nContinue?');
+    const confirmed = confirm('🎮 Practice Mode: Run ALL 15 agent matchups locally.\n\n• No wallet needed\n• No on-chain TX\n• No 0G Storage required\n• Just for fun/testing\n\nContinue?');
     if (!confirmed) return;
 
     addLog('action', '🎮 Practice Mode started! Running all agent matchups locally...');
@@ -3170,6 +3181,9 @@ async function startTournament() {
     }
 
     for (const [w, b] of matchups) {
+        // Check if practice was cancelled
+        if (!isPlaying && practiceTimeoutId === null) break;
+
         whiteAgent = w;
         blackAgent = b;
         updatePlayerBars();
@@ -3192,7 +3206,13 @@ async function startTournament() {
             renderBoard();
 
             function playTournamentNext() {
-                if (!isPlaying || game.gameOver || game.moveLog.length >= 300) {
+                // Check if practice was cancelled
+                if (!isPlaying) {
+                    stopTimer();
+                    setTimeout(resolve, 100);
+                    return;
+                }
+                if (game.gameOver || game.moveLog.length >= 300) {
                     // Tournament: end game WITHOUT on-chain TX (too expensive for 15 games)
                     isPlaying = false;
                     stopTimer();
@@ -3223,7 +3243,7 @@ async function startTournament() {
                 stopTimer();
                 startTimer(game.turn === 'w' ? 'white' : 'black');
 
-                setTimeout(playTournamentNext, 50);
+                practiceTimeoutId = setTimeout(playTournamentNext, 50);
             }
 
             playTournamentNext();
@@ -3235,6 +3255,7 @@ async function startTournament() {
 
     addLog('action', '🎮 Practice Mode complete!');
     isPlaying = false;
+    practiceTimeoutId = null;
     renderAgents();
     renderLeaderboardOnChain();
 }
