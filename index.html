@@ -3167,6 +3167,9 @@ async function startTournament() {
 
     addLog('action', '🎮 Practice Mode started! Running all agent matchups locally...');
 
+    // Mark as playing so the loop runs
+    isPlaying = true;
+
     const matchups = [];
     for (let i = 0; i < AGENTS.length; i++) {
         for (let j = i + 1; j < AGENTS.length; j++) {
