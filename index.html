@@ -1060,6 +1060,9 @@ class Game {
     constructor() {
         this.board = this.initBoard();
         this.turn = 'w';
+        this.epSquare = null;  // en passant target square [row, col]
+        this.halfmoveClock = 0;  // for 50-move rule
+        this.positionHistory = {};  // for threefold repetition
         this.moveLog = [];
         this.gameOver = false;
         this.result = null;
@@ -1084,6 +1087,9 @@ class Game {
         g.moveLog = [...this.moveLog];
         g.gameOver = this.gameOver;
         g.result = this.result;
+        g.epSquare = this.epSquare ? [...this.epSquare] : null;
+        g.halfmoveClock = this.halfmoveClock;
+        g.positionHistory = { ...this.positionHistory };
         return g;
     }
 
@@ -1182,6 +1188,10 @@ class Game {
                                 moves.push({fr:r,fc:c,tr,tc,capture:true});
                             }
                         }
+                        // En passant capture
+                        if (this.epSquare && this.epSquare[0] === tr && this.epSquare[1] === tc && !target) {
+                            moves.push({fr:r,fc:c,tr,tc,capture:true,epCapture:true});
+                        }
                     }
                 } else if (p.type === 'n') {
                     for (const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
@@ -1269,6 +1279,11 @@ class Game {
                 if (this.board[row][3]) this.board[row][3].moved = true;
             }
         }
+        // En passant capture: remove the captured pawn
+        if (m.epCapture) {
+            const capturedRow = piece.color === 'w' ? m.tr + 1 : m.tr - 1;
+            this.board[capturedRow][m.tc] = null;
+        }
 
         if (m.promo) {
             this.board[m.tr][m.tc] = { color: piece.color, type: m.promo, moved: true };
@@ -1283,14 +1298,59 @@ class Game {
         this.applyMoveRaw(m);
         this.turn = this.turn === 'w' ? 'b' : 'w';
 
-        const moveObj = { ...m, san, captured: captured?.type || null, piece: piece.type };
+        // Set en passant square
+        if (piece.type === 'p' && Math.abs(m.tr - m.fr) === 2) {
+            this.epSquare = [(m.fr + m.tr) / 2, m.fc];
+        } else {
+            this.epSquare = null;
+        }
+
+        // Update halfmove clock (50-move rule)
+        if (piece.type === 'p' || captured || m.epCapture) {
+            this.halfmoveClock = 0;
+        } else {
+            this.halfmoveClock++;
+        }
+
+        // Track position for threefold repetition
+        const posKey = this.fen().split(' ').slice(0, 4).join(' ');  // pieces + turn + castling + ep
+        this.positionHistory[posKey] = (this.positionHistory[posKey] || 0) + 1;
+
+        // For en passant, the captured piece is on the same rank, not at target square
+        let capturedType = captured?.type || null;
+        if (m.epCapture && !capturedType) {
+            const epCapturedRow = piece.color === 'w' ? m.tr + 1 : m.tr - 1;
+            const epCaptured = this.board[epCapturedRow]?.[m.tc];
+            capturedType = epCaptured?.type || 'p';
+        }
+        const moveObj = { ...m, san, captured: capturedType, piece: piece.type };
         this.moveLog.push(moveObj);
 
         const oppMoves = this.generateMoves(this.turn);
         if (oppMoves.length === 0) {
             this.gameOver = true;
-            this.result = this.inCheck(this.turn) ? 
-                (this.turn === 'w' ? 'black' : 'white') : 'draw';
+            if (this.inCheck(this.turn)) {
+                // Checkmate
+                this.result = this.turn === 'w' ? 'black' : 'white';
+            } else {
+                // Stalemate
+                this.result = 'draw';
+            }
+        }
+        // Draw by 50-move rule
+        if (this.halfmoveClock >= 100) {
+            this.gameOver = true;
+            this.result = 'draw';
+        }
+        // Draw by threefold repetition
+        if ((this.positionHistory[posKey] || 0) >= 3) {
+            this.gameOver = true;
+            this.result = 'draw';
+        }
+        // Draw by insufficient material
+        if (isInsufficientMaterial(this)) {
+            this.gameOver = true;
+            this.result = 'draw';
         }
 
         return moveObj;
@@ -2919,6 +2979,41 @@ async function startGame() {
     setTimeout(() => playNext(), gameSpeed);
 }
 
+// --- Insufficient Material Check ---
+function isInsufficientMaterial(game) {
+    const pieces = { w: [], b: [] };
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const p = game.board[r][c];
+            if (p) pieces[p.color].push(p.type);
+        }
+    }
+    // K vs K
+    if (pieces.w.length === 1 && pieces.b.length === 1) return true;
+    // K+B vs K or K+N vs K
+    if (pieces.w.length === 1 && pieces.b.length === 2) {
+        if (pieces.b.includes('b') || pieces.b.includes('n')) return true;
+    }
+    if (pieces.b.length === 1 && pieces.w.length === 2) {
+        if (pieces.w.includes('b') || pieces.w.includes('n')) return true;
+    }
+    // K+B vs K+B (same color bishops)
+    if (pieces.w.length === 2 && pieces.b.length === 2) {
+        if (pieces.w.includes('b') && pieces.b.includes('b')) {
+            let wBishopSquare = null, bBishopSquare = null;
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const p = game.board[r][c];
+                    if (p && p.color === 'w' && p.type === 'b') wBishopSquare = (r + c) % 2;
+                    if (p && p.color === 'b' && p.type === 'b') bBishopSquare = (r + c) % 2;
+                }
+            }
+            if (wBishopSquare !== null && bBishopSquare !== null && wBishopSquare === bBishopSquare) return true;
+        }
+    }
+    return false;
+}
+
 // --- Play Next Move ---
 async function playNext() {
     if (!isPlaying || isPaused) return;
@@ -2926,8 +3021,20 @@ async function playNext() {
         endGame(game.result, 'checkmate');
         return;
     }
-    if (game.moveLog.length >= 300) {
+    // Check draw conditions
+    if (game.halfmoveClock >= 100) {
         endGame('draw', '50-move rule');
+        return;
+    }
+    // Threefold repetition
+    const posKey = game.fen().split(' ').slice(0, 4).join(' ');
+    if ((game.positionHistory[posKey] || 0) >= 3) {
+        endGame('draw', 'Threefold repetition');
+        return;
+    }
+    // Insufficient material
+    if (isInsufficientMaterial(game)) {
+        endGame('draw', 'Insufficient material');
         return;
     }
 
@@ -2979,7 +3086,8 @@ async function playNext() {
         }
 
         if (game.gameOver) {
-            endGame(game.result, game.inCheck(game.turn) ? 'checkmate' : 'stalemate');
+            const reason = game.moveLog.length > 0 && game.inCheck(game.turn) ? 'checkmate' : 'stalemate';
+            endGame(game.result, reason);
             return;
         }
 
