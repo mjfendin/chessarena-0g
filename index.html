@@ -2183,7 +2183,8 @@ function startTimer(color) {
         const elapsed = (now - lastTimerTick) / 1000;
         lastTimerTick = now;
         
-        if (color === 'white') {
+        // Use activeTimer (can change) instead of captured color
+        if (activeTimer === 'white') {
             whiteTime = Math.max(0, whiteTime - elapsed);
             updateTimerDisplay('white');
             if (whiteTime <= 0) {
