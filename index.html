@@ -1964,8 +1964,9 @@ function strategyHash(agent) {
 // 0G Storage Integration — ESSENTIAL for gameplay
 // ============================================================
 
-const OG_STORAGE_INDEXER = 'https://indexer-storage-mainnet-turbo.0g.ai';
-const OG_STORAGE_RPC = 'https://evmrpc.0g.ai';
+// 0G Storage is available on testnet; use testnet for storage operations
+const OG_STORAGE_INDEXER = 'https://indexer-storage-testnet-turbo.0g.ai'; // testnet indexer (only available network)
+const OG_STORAGE_RPC = 'https://evmrpc.0g.ai'; // mainnet RPC for on-chain storage fees
 
 /**
  * Check if 0G Storage is accessible by pinging the indexer
@@ -1976,12 +1977,20 @@ async function check0GStorageAvailable() {
             console.error('0G Storage SDK not loaded');
             return false;
         }
-        // Quick connectivity check — the Indexer constructor itself doesn't call,
-        // so we just verify the SDK loaded and the network is reachable
-        const resp = await fetch(OG_STORAGE_INDEXER, { method: 'HEAD', mode: 'no-cors' });
-        // no-cors means we won't get the body, but if it doesn't throw, the server is reachable
-        ogStorageAvailable = true;
-        return true;
+        // Verify indexer is reachable via JSON-RPC call
+        const resp = await fetch(OG_STORAGE_INDEXER, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', method: 'indexer_getShardedNodes', id: 1 })
+        });
+        const data = await resp.json();
+        if (data.result && data.result.trusted) {
+            ogStorageAvailable = true;
+            console.log(`✅ 0G Storage indexer reachable (${data.result.trusted.length} nodes)`);
+            return true;
+        }
+        ogStorageAvailable = false;
+        return false;
     } catch (e) {
         console.error('0G Storage check failed:', e);
         ogStorageAvailable = false;
